@@ -308,6 +308,12 @@ export async function listCaptures(limit = 1000): Promise<CaptureSnapshot> {
   };
 }
 
+export class ReportColumnMissingError extends Error {
+  constructor() {
+    super("A tabela site_audits ainda não tem a coluna result.");
+  }
+}
+
 /** Full report saved with an analysis, or null for analyses recorded before reports were kept. */
 export async function getAuditReport(auditId: string): Promise<SiteAuditResult | null> {
   if (await database() && sql) {
@@ -316,10 +322,16 @@ export async function getAuditReport(auditId: string): Promise<SiteAuditResult |
     return (rows[0]?.result as SiteAuditResult | undefined) ?? null;
   }
   if (supabaseRest()) {
-    const response = await rest(
-      `site_audits?select=result&audit_id=eq.${encodeURIComponent(auditId)}&result=not.is.null&order=created_at.desc&limit=1`,
-      { method: "GET" },
-    );
+    let response: Response;
+    try {
+      response = await rest(
+        `site_audits?select=result&audit_id=eq.${encodeURIComponent(auditId)}&result=not.is.null&order=created_at.desc&limit=1`,
+        { method: "GET" },
+      );
+    } catch (error) {
+      if (/result/.test(error instanceof Error ? error.message : "")) throw new ReportColumnMissingError();
+      throw error;
+    }
     const rows = (await response.json()) as Row[];
     return (rows[0]?.result as SiteAuditResult | undefined) ?? null;
   }

@@ -5,7 +5,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { adminConfigured, adminLogin, adminLogout, hasAdminSession } from "./admin-auth";
-import { getAuditReport, listCaptures, recordAudit, recordLead } from "./services/capture-store";
+import { getAuditReport, listCaptures, recordAudit, recordLead, ReportColumnMissingError } from "./services/capture-store";
 import { dailyReportConfigured, sendDailyReport } from "./services/daily-report";
 import { analyzePublicSite, AuditError, deliverLeadWebhook } from "./services/site-audit";
 
@@ -117,8 +117,15 @@ export const appRouter = router({
       try {
         report = await getAuditReport(input.auditId);
       } catch (error) {
-        console.error("[Admin] Falha ao ler o relatório", error instanceof Error ? error.message : error);
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível abrir o relatório agora." });
+        if (error instanceof ReportColumnMissingError) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "O banco ainda não guarda relatórios. No Supabase, abra o SQL Editor e rode: ALTER TABLE site_audits ADD COLUMN IF NOT EXISTS result JSONB NULL;",
+          });
+        }
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error("[Admin] Falha ao ler o relatório", detail);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Não foi possível abrir o relatório agora. (${detail.slice(0, 160)})` });
       }
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Este relatório não foi guardado. Análises feitas antes desta atualização só têm a nota." });
       return report;
