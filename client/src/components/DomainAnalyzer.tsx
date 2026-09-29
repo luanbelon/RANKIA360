@@ -1,17 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { ArrowRight, Globe2, LoaderCircle, SearchCheck, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { trackEvent } from "@/lib/analytics";
+import { AnalysisTerminal } from "@/components/AnalysisTerminal";
 import { AuditResults } from "@/components/AuditResults";
 import type { SiteAuditResult } from "@shared/audit-types";
-
-const progressSteps = [
-  { title: "Lendo o seu site", detail: "Verificando a saúde técnica, o conteúdo e os dados da empresa" },
-  { title: "Consultando as IAs", detail: "Perguntando sobre a sua empresa, como um cliente faria" },
-  { title: "Comparando as respostas", detail: "Conferindo se a sua empresa foi indicada e quem apareceu no lugar" },
-  { title: "Calculando a sua nota", detail: "Quase lá, montando o seu resultado" },
-];
-const STEP_INTERVAL_MS = 7_000;
 
 type DomainAnalyzerProps = {
   idPrefix?: string;
@@ -21,14 +14,6 @@ type DomainAnalyzerProps = {
 export function DomainAnalyzer({ idPrefix = "hero", onResult }: DomainAnalyzerProps) {
   const [domain, setDomain] = useState("");
   const audit = trpc.audit.analyze.useMutation();
-  const [step, setStep] = useState(0);
-
-  useEffect(() => {
-    if (!audit.isPending) return;
-    setStep(0);
-    const timer = window.setInterval(() => setStep(current => Math.min(current + 1, progressSteps.length - 1)), STEP_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [audit.isPending]);
   const inputId = `domain-input-${idPrefix}`;
   const assuranceId = `audit-assurance-${idPrefix}`;
   const resultId = `audit-result-${idPrefix}`;
@@ -112,18 +97,7 @@ export function DomainAnalyzer({ idPrefix = "hero", onResult }: DomainAnalyzerPr
         </span>
       </div>
 
-      {audit.isPending && (
-        <div className="analysis-progress" role="status" aria-live="polite">
-          <span className="analysis-progress__spinner">
-            <LoaderCircle size={20} className="spin" aria-hidden="true" />
-          </span>
-          <div className="analysis-progress__copy">
-            <strong>{progressSteps[step]!.title}</strong>
-            <small>{progressSteps[step]!.detail}</small>
-          </div>
-          <span className="analysis-progress__line" aria-hidden="true" />
-        </div>
-      )}
+      {audit.isPending && <AnalysisTerminal domain={audit.variables?.domain ?? domain} />}
 
       {audit.error && (
         <p className="form-error" role="alert">{audit.error.message}</p>

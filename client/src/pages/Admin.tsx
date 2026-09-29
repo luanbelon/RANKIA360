@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Download, LoaderCircle, LockKeyhole, LogOut, Mail, MessageCircle, RefreshCw, Search } from "lucide-react";
+import { Download, LoaderCircle, LockKeyhole, LogOut, Mail, MessageCircle, RefreshCw, Search, Send } from "lucide-react";
+import { toast } from "sonner";
 import { BrandMark } from "@/components/BrandMark";
 import { trpc } from "@/lib/trpc";
 
@@ -61,6 +62,11 @@ function Login({ configured, onDone }: { configured: boolean; onDone: () => void
 function Dashboard({ onLogout }: { onLogout: () => void }) {
   const data = trpc.admin.data.useQuery(undefined, { refetchInterval: 60_000 });
   const logout = trpc.admin.logout.useMutation({ onSuccess: onLogout });
+  const reportStatus = trpc.admin.reportStatus.useQuery();
+  const sendReport = trpc.admin.sendReportNow.useMutation({
+    onSuccess: () => toast.success("Relatório enviado para o seu WhatsApp."),
+    onError: error => toast.error(error.message),
+  });
   const [tab, setTab] = useState<Tab>("leads");
   const [filter, setFilter] = useState<LeadFilter>("all");
   const [query, setQuery] = useState("");
@@ -113,6 +119,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           <button className="admin-button" type="button" onClick={() => data.refetch()} disabled={data.isFetching}>
             <RefreshCw size={15} className={data.isFetching ? "spin" : undefined} /> Atualizar
           </button>
+          {reportStatus.data?.configured && (
+            <button className="admin-button" type="button" onClick={() => sendReport.mutate()} disabled={sendReport.isPending}>
+              <Send size={15} /> {sendReport.isPending ? "Enviando..." : "Enviar resumo"}
+            </button>
+          )}
           <button className="admin-button" type="button" onClick={() => logout.mutate()}>
             <LogOut size={15} /> Sair
           </button>

@@ -6,6 +6,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { adminConfigured, adminLogin, adminLogout, hasAdminSession } from "./admin-auth";
 import { listCaptures, recordAudit, recordLead } from "./services/capture-store";
+import { dailyReportConfigured, sendDailyReport } from "./services/daily-report";
 import { analyzePublicSite, AuditError, deliverLeadWebhook } from "./services/site-audit";
 
 const leadInput = z.object({
@@ -109,6 +110,16 @@ export const appRouter = router({
       } catch (error) {
         console.error("[Admin] Falha ao ler os dados", error instanceof Error ? error.message : error);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível ler os dados agora. Confira a conexão com o banco." });
+      }
+    }),
+    reportStatus: panelProcedure.query(() => ({ configured: dailyReportConfigured() })),
+    sendReportNow: panelProcedure.mutation(async () => {
+      try {
+        await sendDailyReport("today");
+        return { ok: true } as const;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Falha ao enviar o relatório.";
+        throw new TRPCError({ code: "BAD_REQUEST", message });
       }
     }),
   }),
