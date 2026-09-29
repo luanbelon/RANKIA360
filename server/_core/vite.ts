@@ -69,7 +69,8 @@ export function serveStatic(app: Express) {
     try {
       template ??= await fs.promises.readFile(path.resolve(distPath, "index.html"), "utf-8");
       const page = injectSeo(template, req);
-      const status = getSeoPage(req.originalUrl) ? 200 : 404;
+      const isAdmin = /^\/admin(\/|\?|$)/.test(req.originalUrl);
+      const status = getSeoPage(req.originalUrl) || isAdmin ? 200 : 404;
       res.status(status).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       next(e);

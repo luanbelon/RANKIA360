@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import postgres from "postgres";
 
@@ -24,6 +24,32 @@ export type LeadRecord = {
   submitted: boolean;
   ip: string;
 };
+
+export type StoredAudit = {
+  id: string;
+  domain: string;
+  status: "ok" | "error";
+  score: number | null;
+  errorMessage: string | null;
+  visitor: string;
+  createdAt: string;
+};
+
+export type StoredLead = {
+  id: string;
+  domain: string;
+  name: string;
+  company: string;
+  email: string;
+  whatsapp: string;
+  wantsConsultation: boolean;
+  submitted: boolean;
+  visitor: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CaptureSnapshot = { source: "database" | "supabase" | "local"; audits: StoredAudit[]; leads: StoredLead[] };
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 
@@ -188,4 +214,80 @@ export async function recordLead(record: LeadRecord): Promise<void> {
   } catch (error) {
     console.error("[Capture] Falha ao salvar formulário:", error instanceof Error ? error.message : error);
   }
+}
+
+type Row = Record<string, unknown>;
+
+const text = (value: unknown) => (value === null || value === undefined ? "" : String(value));
+const iso = (value: unknown) => (value instanceof Date ? value.toISOString() : text(value));
+const visitorOf = (hash: unknown) => text(hash).slice(0, 8);
+
+function toAudit(row: Row): StoredAudit {
+  return {
+    id: text(row.id),
+    domain: text(row.domain),
+    status: row.status === "error" ? "error" : "ok",
+    score: row.score === null || row.score === undefined ? null : Number(row.score),
+    errorMessage: row.error_message ? text(row.error_message) : null,
+    visitor: visitorOf(row.ip_hash),
+    createdAt: iso(row.created_at),
+  };
+}
+
+function toLead(row: Row): StoredLead {
+  return {
+    id: text(row.draft_id ?? row.id),
+    domain: text(row.domain),
+    name: text(row.name),
+    company: text(row.company),
+    email: text(row.email),
+    whatsapp: text(row.whatsapp),
+    wantsConsultation: row.wants_consultation === true || row.wants_consultation === 1,
+    submitted: row.submitted === true || row.submitted === 1,
+    visitor: visitorOf(row.ip_hash),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at ?? row.created_at),
+  };
+}
+
+async function readLocal(file: string): Promise<Row[]> {
+  const content = await readFile(path.join(DATA_DIR, file), "utf8").catch(() => "");
+  return content.split("\n").filter(Boolean).flatMap(line => {
+    try { return [JSON.parse(line) as Row]; } catch { return []; }
+  });
+}
+
+export async function listCaptures(limit = 1000): Promise<CaptureSnapshot> {
+  if (await database() && sql) {
+    const audits = await sql<Row[]>`SELECT * FROM site_audits ORDER BY created_at DESC LIMIT ${limit}`;
+    const leads = await sql<Row[]>`SELECT * FROM lead_forms ORDER BY updated_at DESC LIMIT ${limit}`;
+    return { source: "database", audits: audits.map(toAudit), leads: leads.map(toLead) };
+  }
+  if (supabaseRest()) {
+    const [audits, leads] = await Promise.all([
+      rest(`site_audits?select=*&order=created_at.desc&limit=${limit}`, { method: "GET" }).then(res => res.json() as Promise<Row[]>),
+      rest(`lead_forms?select=*&order=updated_at.desc&limit=${limit}`, { method: "GET" }).then(res => res.json() as Promise<Row[]>),
+    ]);
+    return { source: "supabase", audits: audits.map(toAudit), leads: leads.map(toLead) };
+  }
+
+  const audits = (await readLocal("site-audits.jsonl")).map((row, index) => toAudit({
+    id: String(index + 1), domain: row.domain, status: row.status, score: row.score, error_message: row.errorMessage,
+    ip_hash: row.ipHash, created_at: row.at,
+  }));
+  const drafts = new Map<string, Row>();
+  for (const row of await readLocal("lead-forms.jsonl")) {
+    const key = text(row.draftId);
+    const previous = drafts.get(key);
+    drafts.set(key, {
+      draft_id: key, domain: row.domain, name: row.name, company: row.company, email: row.email, whatsapp: row.whatsapp,
+      wants_consultation: row.wantsConsultation, submitted: Boolean(previous?.submitted) || row.submitted === true,
+      ip_hash: row.ipHash, created_at: previous?.created_at ?? row.at, updated_at: row.at,
+    });
+  }
+  return {
+    source: "local",
+    audits: audits.reverse().slice(0, limit),
+    leads: Array.from(drafts.values()).map(toLead).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit),
+  };
 }

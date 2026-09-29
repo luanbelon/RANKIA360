@@ -4,7 +4,8 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { recordAudit, recordLead } from "./services/capture-store";
+import { adminConfigured, adminLogin, adminLogout, hasAdminSession } from "./admin-auth";
+import { listCaptures, recordAudit, recordLead } from "./services/capture-store";
 import { analyzePublicSite, AuditError, deliverLeadWebhook } from "./services/site-audit";
 
 const leadInput = z.object({
@@ -77,8 +78,40 @@ function enforceLeadLimit(key: string) {
   existing.count += 1;
 }
 
+const panelProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!hasAdminSession(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sua sessão expirou. Entre novamente." });
+  return next();
+});
+
 export const appRouter = router({
   system: systemRouter,
+  admin: router({
+    session: publicProcedure.query(({ ctx }) => ({ configured: adminConfigured(), authenticated: hasAdminSession(ctx.req) })),
+    login: publicProcedure
+      .input(z.object({ user: z.string().max(100), password: z.string().max(200) }))
+      .mutation(({ ctx, input }) => {
+        const result = adminLogin(ctx.req, ctx.res, input.user, input.password);
+        if (result.ok) return { ok: true } as const;
+        const message = result.reason === "not_configured"
+          ? "O acesso ao painel ainda não foi configurado no servidor."
+          : result.reason === "locked"
+            ? "Muitas tentativas. Aguarde 15 minutos e tente de novo."
+            : "Usuário ou senha incorretos.";
+        throw new TRPCError({ code: result.reason === "locked" ? "TOO_MANY_REQUESTS" : "BAD_REQUEST", message });
+      }),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      adminLogout(ctx.req, ctx.res);
+      return { ok: true } as const;
+    }),
+    data: panelProcedure.query(async () => {
+      try {
+        return await listCaptures();
+      } catch (error) {
+        console.error("[Admin] Falha ao ler os dados", error instanceof Error ? error.message : error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível ler os dados agora. Confira a conexão com o banco." });
+      }
+    }),
+  }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

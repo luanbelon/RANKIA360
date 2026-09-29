@@ -49,7 +49,7 @@ export function registerSeoRoutes(app: Express): void {
     const aiRules = AI_CRAWLERS.map(agent => `User-agent: ${agent}\nAllow: /\n`).join("\n");
     res
       .type("text/plain; charset=utf-8")
-      .send(`User-agent: *\nAllow: /\nDisallow: /api/\n\n${aiRules}\nSitemap: ${origin}/sitemap.xml\n`);
+      .send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\n\n${aiRules}\nSitemap: ${origin}/sitemap.xml\n`);
   });
 
   app.get("/sitemap.xml", (req: Request, res: Response) => {
