@@ -35,11 +35,35 @@ function hashIp(ip: string): string {
   return createHash("sha256").update(`${process.env.IP_HASH_SALT ?? "rankia360"}:${ip}`).digest("hex").slice(0, 32);
 }
 
+function supabaseRest(): { url: string; key: string } | null {
+  const url = process.env.SUPABASE_URL?.trim().replace(/\/+$/, "");
+  const key = process.env.SUPABASE_API_KEY?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  return url && key ? { url, key } : null;
+}
+
+async function rest(pathAndQuery: string, init: { method: string; body?: unknown; prefer?: string }): Promise<Response> {
+  const config = supabaseRest()!;
+  const response = await fetch(`${config.url}/rest/v1/${pathAndQuery}`, {
+    method: init.method,
+    headers: {
+      apikey: config.key,
+      "content-type": "application/json",
+      ...(init.prefer ? { prefer: init.prefer } : {}),
+    },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`Supabase ${response.status}: ${(await response.text().catch(() => "")).slice(0, 200)}`);
+  }
+  return response;
+}
+
 function database(): Promise<boolean> {
   if (ready) return ready;
   const url = process.env.DATABASE_URL?.trim();
   if (!url) {
-    console.warn("[Capture] DATABASE_URL não configurada; salvando em data/*.jsonl.");
+    if (!supabaseRest()) console.warn("[Capture] Banco não configurado; salvando em data/*.jsonl.");
     ready = Promise.resolve(false);
     return ready;
   }
@@ -110,6 +134,14 @@ export async function recordAudit(record: AuditRecord): Promise<void> {
         VALUES (${row.domain}, ${row.status}, ${row.auditId}, ${row.score}, ${row.errorMessage}, ${row.ipHash})`;
       return;
     }
+    if (supabaseRest()) {
+      await rest("site_audits", {
+        method: "POST",
+        prefer: "return=minimal",
+        body: { domain: row.domain, status: row.status, audit_id: row.auditId, score: row.score, error_message: row.errorMessage, ip_hash: row.ipHash },
+      });
+      return;
+    }
     await appendLocal("site-audits.jsonl", row);
   } catch (error) {
     console.error("[Capture] Falha ao salvar análise:", error instanceof Error ? error.message : error);
@@ -130,6 +162,26 @@ export async function recordLead(record: LeadRecord): Promise<void> {
           wants_consultation = EXCLUDED.wants_consultation,
           submitted = lead_forms.submitted OR EXCLUDED.submitted,
           updated_at = now()`;
+      return;
+    }
+    if (supabaseRest()) {
+      const body = {
+        draft_id: fields.draftId, audit_id: fields.auditId, domain: fields.domain.slice(0, 253),
+        name: fields.name, company: fields.company, email: fields.email, whatsapp: fields.whatsapp,
+        wants_consultation: fields.wantsConsultation, submitted: fields.submitted, ip_hash: ipHash,
+        updated_at: new Date().toISOString(),
+      };
+      if (fields.submitted) {
+        await rest("lead_forms?on_conflict=draft_id", { method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body });
+        return;
+      }
+      // A late draft must not overwrite a form that was already submitted.
+      const { submitted: _submitted, draft_id: _draftId, ...changes } = body;
+      const updated = await rest(`lead_forms?draft_id=eq.${encodeURIComponent(fields.draftId)}&submitted=eq.false`, {
+        method: "PATCH", prefer: "return=representation", body: changes,
+      });
+      const rows = (await updated.json().catch(() => [])) as unknown[];
+      if (!rows.length) await rest("lead_forms?on_conflict=draft_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body });
       return;
     }
     await appendLocal("lead-forms.jsonl", { ...fields, ipHash });
