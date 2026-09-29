@@ -1,0 +1,13 @@
+{
+  "name": "RankIA 360",
+  "short_name": "RankIA 360",
+  "description": "Visibilidade na nova era da busca.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080a0f",
+  "theme_color": "#080a0f",
+  "icons": [
+    { "src": "/favicon.png", "sizes": "256x256", "type": "image/png" }
+  ]
+}
