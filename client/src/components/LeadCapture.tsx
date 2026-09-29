@@ -140,7 +140,7 @@ export function LeadCapture({ open, result, onClose, onComplete }: LeadCapturePr
             {submitLead.isPending ? "Liberando relatório..." : "Ver relatório completo"}
             {!submitLead.isPending && <ArrowRight size={16} />}
           </button>
-          <p className="lead-trust"><LockKeyhole size={13} /> Guardamos o que você preencher aqui para entrar em contato sobre o relatório. Não compartilhamos seus dados. Sem spam.</p>
+          <p className="lead-trust"><LockKeyhole size={13} /> Guardamos o que você preencher aqui para entrar em contato sobre o relatório. Não vendemos seus dados. Sem spam. <a href="/privacidade" target="_blank" rel="noopener">Saiba mais</a></p>
         </form>
       </section>
     </div>

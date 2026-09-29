@@ -60,7 +60,7 @@ export function Footer() {
       </div>
 
       <div className="site-footer__bottom section-shell">
-        <span>© {new Date().getFullYear()} {brand.name}</span>
+        <span>© {new Date().getFullYear()} {brand.name} · <a href="/privacidade">Privacidade</a></span>
         <a href="#top" className="back-to-top">Voltar ao topo ↑</a>
       </div>
     </footer>
