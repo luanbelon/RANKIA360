@@ -10,8 +10,11 @@ CREATE TABLE IF NOT EXISTS site_audits (
   ip_hash VARCHAR(32) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Relatório completo de cada análise (seguro rodar de novo em tabelas já criadas).
+ALTER TABLE site_audits ADD COLUMN IF NOT EXISTS result JSONB NULL;
 CREATE INDEX IF NOT EXISTS idx_site_audits_created ON site_audits (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_site_audits_domain ON site_audits (domain);
+CREATE INDEX IF NOT EXISTS idx_site_audits_audit_id ON site_audits (audit_id);
 
 CREATE TABLE IF NOT EXISTS lead_forms (
   id BIGSERIAL PRIMARY KEY,

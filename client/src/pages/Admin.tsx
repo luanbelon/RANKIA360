@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Download, LoaderCircle, LockKeyhole, LogOut, Mail, MessageCircle, RefreshCw, Search, Send } from "lucide-react";
+import { Download, FileText, LoaderCircle, LockKeyhole, LogOut, Mail, MessageCircle, Printer, RefreshCw, Search, Send, X } from "lucide-react";
 import { toast } from "sonner";
+import { AuditResults } from "@/components/AuditResults";
 import { BrandMark } from "@/components/BrandMark";
 import { trpc } from "@/lib/trpc";
 
@@ -59,6 +60,44 @@ function Login({ configured, onDone }: { configured: boolean; onDone: () => void
   );
 }
 
+function ReportButton({ auditId, onOpen }: { auditId: string | null; onOpen: (id: string) => void }) {
+  if (!auditId) return <>—</>;
+  return (
+    <button className="admin-link-button" type="button" onClick={() => onOpen(auditId)}>
+      <FileText size={14} /> Ver relatório
+    </button>
+  );
+}
+
+function ReportViewer({ auditId, onClose }: { auditId: string; onClose: () => void }) {
+  const report = trpc.admin.report.useQuery({ auditId }, { retry: false, staleTime: Infinity });
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [onClose]);
+
+  return (
+    <div className="admin-report" role="dialog" aria-modal="true" aria-label="Relatório da análise" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="admin-report__sheet">
+        <div className="admin-report__bar">
+          <strong>Relatório completo{report.data ? ` · ${report.data.domain}` : ""}</strong>
+          {report.data && <span>Analisado em {formatDate(report.data.analyzedAt)}</span>}
+          <div className="admin-report__actions">
+            {report.data && <button className="admin-button" type="button" onClick={() => window.print()}><Printer size={15} /> Imprimir / PDF</button>}
+            <button className="admin-button" type="button" onClick={onClose} aria-label="Fechar relatório"><X size={15} /> Fechar</button>
+          </div>
+        </div>
+        {report.isLoading && <p className="admin-empty"><LoaderCircle size={18} className="spin" /> Abrindo relatório...</p>}
+        {report.error && <p className="admin-empty">{report.error.message}</p>}
+        {report.data && <AuditResults result={report.data} id={`admin-report-${auditId}`} fullAccess />}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ onLogout }: { onLogout: () => void }) {
   const data = trpc.admin.data.useQuery(undefined, { refetchInterval: 60_000 });
   const logout = trpc.admin.logout.useMutation({ onSuccess: onLogout });
@@ -70,6 +109,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<Tab>("leads");
   const [filter, setFilter] = useState<LeadFilter>("all");
   const [query, setQuery] = useState("");
+  const [reportId, setReportId] = useState<string | null>(null);
 
   const leads = data.data?.leads ?? [];
   const audits = data.data?.audits ?? [];
@@ -171,7 +211,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           visibleLeads.length ? (
             <div className="admin-table-wrap">
               <table className="admin-table">
-                <thead><tr><th>Situação</th><th>Contato</th><th>Empresa</th><th>Site analisado</th><th>Conversa</th><th>Atualizado</th></tr></thead>
+                <thead><tr><th>Situação</th><th>Contato</th><th>Empresa</th><th>Site analisado</th><th>Conversa</th><th>Atualizado</th><th>Relatório</th></tr></thead>
                 <tbody>
                   {visibleLeads.map(item => {
                     const whatsapp = whatsappLink(item.whatsapp);
@@ -191,6 +231,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
                         <td><a href={`https://${item.domain}`} target="_blank" rel="noreferrer">{item.domain}</a></td>
                         <td>{item.wantsConsultation ? "Sim" : "—"}</td>
                         <td>{formatDate(item.updatedAt)}</td>
+                        <td><ReportButton auditId={item.auditId} onOpen={setReportId} /></td>
                       </tr>
                     );
                   })}
@@ -204,7 +245,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           visibleAudits.length ? (
             <div className="admin-table-wrap">
               <table className="admin-table">
-                <thead><tr><th>Data</th><th>Site</th><th>Resultado</th><th>Nota</th><th>Visitante</th></tr></thead>
+                <thead><tr><th>Data</th><th>Site</th><th>Resultado</th><th>Nota</th><th>Visitante</th><th>Relatório</th></tr></thead>
                 <tbody>
                   {visibleAudits.map(item => (
                     <tr key={item.id}>
@@ -218,6 +259,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
                       </td>
                       <td>{item.score ?? "—"}</td>
                       <td><code>{item.visitor}</code></td>
+                      <td>{item.status === "ok" ? <ReportButton auditId={item.auditId} onOpen={setReportId} /> : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -226,6 +268,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           ) : <p className="admin-empty">Nenhum site encontrado.</p>
         )}
       </section>
+      {reportId && <ReportViewer auditId={reportId} onClose={() => setReportId(null)} />}
     </main>
   );
 }

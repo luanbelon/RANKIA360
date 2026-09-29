@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import postgres from "postgres";
+import type { SiteAuditResult } from "@shared/audit-types";
 
 export type AuditRecord = {
   domain: string;
@@ -9,6 +10,7 @@ export type AuditRecord = {
   auditId?: string;
   score?: number;
   errorMessage?: string;
+  result?: SiteAuditResult;
   ip: string;
 };
 
@@ -27,6 +29,7 @@ export type LeadRecord = {
 
 export type StoredAudit = {
   id: string;
+  auditId: string | null;
   domain: string;
   status: "ok" | "error";
   score: number | null;
@@ -37,6 +40,7 @@ export type StoredAudit = {
 
 export type StoredLead = {
   id: string;
+  auditId: string | null;
   domain: string;
   name: string;
   company: string;
@@ -108,7 +112,9 @@ function database(): Promise<boolean> {
         ip_hash VARCHAR(32) NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
+      await sql`ALTER TABLE site_audits ADD COLUMN IF NOT EXISTS result JSONB NULL`;
       await sql`CREATE INDEX IF NOT EXISTS idx_site_audits_created ON site_audits (created_at DESC)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_site_audits_audit_id ON site_audits (audit_id)`;
       await sql`CREATE INDEX IF NOT EXISTS idx_site_audits_domain ON site_audits (domain)`;
       await sql`CREATE TABLE IF NOT EXISTS lead_forms (
         id BIGSERIAL PRIMARY KEY,
@@ -154,21 +160,27 @@ export async function recordAudit(record: AuditRecord): Promise<void> {
     errorMessage: record.errorMessage?.slice(0, 300) ?? null,
     ipHash: hashIp(record.ip),
   };
+  const result = record.result ?? null;
   try {
     if (await database() && sql) {
-      await sql`INSERT INTO site_audits (domain, status, audit_id, score, error_message, ip_hash)
-        VALUES (${row.domain}, ${row.status}, ${row.auditId}, ${row.score}, ${row.errorMessage}, ${row.ipHash})`;
+      await sql`INSERT INTO site_audits (domain, status, audit_id, score, error_message, ip_hash, result)
+        VALUES (${row.domain}, ${row.status}, ${row.auditId}, ${row.score}, ${row.errorMessage}, ${row.ipHash},
+          ${result ? sql.json(result as unknown as postgres.JSONValue) : null})`;
       return;
     }
     if (supabaseRest()) {
-      await rest("site_audits", {
-        method: "POST",
-        prefer: "return=minimal",
-        body: { domain: row.domain, status: row.status, audit_id: row.auditId, score: row.score, error_message: row.errorMessage, ip_hash: row.ipHash },
-      });
+      const body = { domain: row.domain, status: row.status, audit_id: row.auditId, score: row.score, error_message: row.errorMessage, ip_hash: row.ipHash };
+      try {
+        await rest("site_audits", { method: "POST", prefer: "return=minimal", body: { ...body, result } });
+      } catch (error) {
+        // Tables created before the report column existed still get the summary row.
+        if (!/result/.test(error instanceof Error ? error.message : "")) throw error;
+        console.warn("[Capture] Coluna result ausente em site_audits; rode supabase/schema.sql para guardar o relatório completo.");
+        await rest("site_audits", { method: "POST", prefer: "return=minimal", body });
+      }
       return;
     }
-    await appendLocal("site-audits.jsonl", row);
+    await appendLocal("site-audits.jsonl", { ...row, result });
   } catch (error) {
     console.error("[Capture] Falha ao salvar análise:", error instanceof Error ? error.message : error);
   }
@@ -225,6 +237,7 @@ const visitorOf = (hash: unknown) => text(hash).slice(0, 8);
 function toAudit(row: Row): StoredAudit {
   return {
     id: text(row.id),
+    auditId: row.audit_id ? text(row.audit_id) : null,
     domain: text(row.domain),
     status: row.status === "error" ? "error" : "ok",
     score: row.score === null || row.score === undefined ? null : Number(row.score),
@@ -237,6 +250,7 @@ function toAudit(row: Row): StoredAudit {
 function toLead(row: Row): StoredLead {
   return {
     id: text(row.draft_id ?? row.id),
+    auditId: row.audit_id ? text(row.audit_id) : null,
     domain: text(row.domain),
     name: text(row.name),
     company: text(row.company),
@@ -257,22 +271,24 @@ async function readLocal(file: string): Promise<Row[]> {
   });
 }
 
+const AUDIT_LIST_COLUMNS = "id,domain,status,audit_id,score,error_message,ip_hash,created_at";
+
 export async function listCaptures(limit = 1000): Promise<CaptureSnapshot> {
   if (await database() && sql) {
-    const audits = await sql<Row[]>`SELECT * FROM site_audits ORDER BY created_at DESC LIMIT ${limit}`;
+    const audits = await sql<Row[]>`SELECT ${sql(AUDIT_LIST_COLUMNS.split(","))} FROM site_audits ORDER BY created_at DESC LIMIT ${limit}`;
     const leads = await sql<Row[]>`SELECT * FROM lead_forms ORDER BY updated_at DESC LIMIT ${limit}`;
     return { source: "database", audits: audits.map(toAudit), leads: leads.map(toLead) };
   }
   if (supabaseRest()) {
     const [audits, leads] = await Promise.all([
-      rest(`site_audits?select=*&order=created_at.desc&limit=${limit}`, { method: "GET" }).then(res => res.json() as Promise<Row[]>),
+      rest(`site_audits?select=${AUDIT_LIST_COLUMNS}&order=created_at.desc&limit=${limit}`, { method: "GET" }).then(res => res.json() as Promise<Row[]>),
       rest(`lead_forms?select=*&order=updated_at.desc&limit=${limit}`, { method: "GET" }).then(res => res.json() as Promise<Row[]>),
     ]);
     return { source: "supabase", audits: audits.map(toAudit), leads: leads.map(toLead) };
   }
 
   const audits = (await readLocal("site-audits.jsonl")).map((row, index) => toAudit({
-    id: String(index + 1), domain: row.domain, status: row.status, score: row.score, error_message: row.errorMessage,
+    id: String(index + 1), audit_id: row.auditId, domain: row.domain, status: row.status, score: row.score, error_message: row.errorMessage,
     ip_hash: row.ipHash, created_at: row.at,
   }));
   const drafts = new Map<string, Row>();
@@ -280,7 +296,7 @@ export async function listCaptures(limit = 1000): Promise<CaptureSnapshot> {
     const key = text(row.draftId);
     const previous = drafts.get(key);
     drafts.set(key, {
-      draft_id: key, domain: row.domain, name: row.name, company: row.company, email: row.email, whatsapp: row.whatsapp,
+      draft_id: key, audit_id: row.auditId, domain: row.domain, name: row.name, company: row.company, email: row.email, whatsapp: row.whatsapp,
       wants_consultation: row.wantsConsultation, submitted: Boolean(previous?.submitted) || row.submitted === true,
       ip_hash: row.ipHash, created_at: previous?.created_at ?? row.at, updated_at: row.at,
     });
@@ -290,4 +306,24 @@ export async function listCaptures(limit = 1000): Promise<CaptureSnapshot> {
     audits: audits.reverse().slice(0, limit),
     leads: Array.from(drafts.values()).map(toLead).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit),
   };
+}
+
+/** Full report saved with an analysis, or null for analyses recorded before reports were kept. */
+export async function getAuditReport(auditId: string): Promise<SiteAuditResult | null> {
+  if (await database() && sql) {
+    const rows = await sql<Row[]>`SELECT result FROM site_audits
+      WHERE audit_id = ${auditId} AND result IS NOT NULL ORDER BY created_at DESC LIMIT 1`;
+    return (rows[0]?.result as SiteAuditResult | undefined) ?? null;
+  }
+  if (supabaseRest()) {
+    const response = await rest(
+      `site_audits?select=result&audit_id=eq.${encodeURIComponent(auditId)}&result=not.is.null&order=created_at.desc&limit=1`,
+      { method: "GET" },
+    );
+    const rows = (await response.json()) as Row[];
+    return (rows[0]?.result as SiteAuditResult | undefined) ?? null;
+  }
+  const rows = await readLocal("site-audits.jsonl");
+  const match = rows.reverse().find(row => row.auditId === auditId && row.result);
+  return (match?.result as SiteAuditResult | undefined) ?? null;
 }

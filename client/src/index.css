@@ -3515,6 +3515,72 @@ button.dashboard-foot__cta:focus-visible {
   background: rgba(255, 196, 107, 0.06);
   font-size: 13px;
 }
+.admin-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: var(--acid);
+  border: 1px solid rgba(198, 243, 106, 0.25);
+  border-radius: 8px;
+  background: rgba(198, 243, 106, 0.05);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.admin-link-button:hover { background: rgba(198, 243, 106, 0.12); }
+.admin-report {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  padding: 24px;
+  overflow-y: auto;
+  background: rgba(3, 5, 8, 0.78);
+  backdrop-filter: blur(4px);
+}
+.admin-report__sheet {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 22px 26px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #080b10;
+}
+.admin-report__bar {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 -22px 8px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  background: rgba(8, 11, 16, 0.96);
+}
+.admin-report__bar strong { color: #eef2f6; font-size: 15px; }
+.admin-report__bar span { color: #8f99a6; font-size: 12.5px; }
+.admin-report__actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.admin-report .audit-result { margin-top: 18px; }
+@media (max-width: 640px) {
+  .admin-report { padding: 8px; }
+  .admin-report__sheet { padding: 0 12px 18px; }
+  .admin-report__bar { margin: 0 -12px 8px; padding: 12px; }
+}
+@media print {
+  .admin-shell > :not(.admin-report),
+  .admin-report__actions { display: none !important; }
+  .admin-report { position: static; padding: 0; overflow: visible; background: none; backdrop-filter: none; }
+  .admin-report__sheet { max-width: none; border: 0; }
+  .admin-report__bar { position: static; }
+}
 
 @media (max-width: 1000px) {
   .admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

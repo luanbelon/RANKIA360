@@ -7,7 +7,7 @@ import { trackEvent } from "@/lib/analytics";
 
 const statusFor = (score: number) => score >= 75 ? "Sinais consistentes" : score >= 50 ? "Há espaço para evoluir" : "Base a fortalecer";
 
-export function AuditResults({ result, id }: { result: SiteAuditResult; id: string }) {
+export function AuditResults({ result, id, fullAccess = false }: { result: SiteAuditResult; id: string; fullAccess?: boolean }) {
   return (
     <section className="audit-result" id={id} aria-labelledby={`${id}-title`}>
       <div className="audit-result__heading">
@@ -40,14 +40,15 @@ export function AuditResults({ result, id }: { result: SiteAuditResult; id: stri
           <div className="audit-aside__note"><CircleAlert size={15} /><span>Analisamos a página inicial e informações públicas. Não acessamos o Google Search Console nem dados privados do site.</span></div>
         </div>
       </div>
-      <AuditDetails result={result} />
+      <AuditDetails result={result} fullAccess={fullAccess} />
     </section>
   );
 }
 
-export function AuditDetails({ result }: { result: SiteAuditResult }) {
+export function AuditDetails({ result, fullAccess = false }: { result: SiteAuditResult; fullAccess?: boolean }) {
   const [leadOpen, setLeadOpen] = useState(false);
-  const [reportUnlocked, setReportUnlocked] = useState(false);
+  const [unlockedByLead, setReportUnlocked] = useState(false);
+  const reportUnlocked = fullAccess || unlockedByLead;
   const [deliveryNote, setDeliveryNote] = useState("");
   const [leadReceived, setLeadReceived] = useState(false);
   const closeLead = useCallback(() => setLeadOpen(false), []);
@@ -66,9 +67,9 @@ export function AuditDetails({ result }: { result: SiteAuditResult }) {
         </article>)}
       </div>
       {hiddenCount > 0 && !reportUnlocked && <div className="report-gate"><span className="report-gate__lock"><LockKeyhole size={17} /></span><div><strong>Mais {hiddenCount} {hiddenCount === 1 ? "ponto encontrado" : "pontos encontrados"}</strong><span>Informe seus dados para liberar o relatório completo com todas as recomendações.</span></div><button className="button button--outline" onClick={() => { setLeadOpen(true); trackEvent("lead_form_opened"); }}>Receber relatório completo <ArrowUpRight size={15} /></button></div>}
-      {reportUnlocked && <div className={`delivery-note ${leadReceived ? "delivery-note--success" : ""}`} role="status"><Check size={16} /><span>{deliveryNote}</span></div>}
+      {unlockedByLead && <div className={`delivery-note ${leadReceived ? "delivery-note--success" : ""}`} role="status"><Check size={16} /><span>{deliveryNote}</span></div>}
       <details className="audit-limitations"><summary>Como interpretar este score</summary><ul>{result.limitations.map(item => <li key={item}>{item}</li>)}</ul></details>
-      <LeadCapture open={leadOpen} result={result} onClose={closeLead} onComplete={response => { setReportUnlocked(response.reportUnlocked); setDeliveryNote(response.message); setLeadReceived(response.received); setLeadOpen(false); }} />
+      {!fullAccess && <LeadCapture open={leadOpen} result={result} onClose={closeLead} onComplete={response => { setReportUnlocked(response.reportUnlocked); setDeliveryNote(response.message); setLeadReceived(response.received); setLeadOpen(false); }} />}
     </>
   );
 }

@@ -5,7 +5,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { adminConfigured, adminLogin, adminLogout, hasAdminSession } from "./admin-auth";
-import { listCaptures, recordAudit, recordLead } from "./services/capture-store";
+import { getAuditReport, listCaptures, recordAudit, recordLead } from "./services/capture-store";
 import { dailyReportConfigured, sendDailyReport } from "./services/daily-report";
 import { analyzePublicSite, AuditError, deliverLeadWebhook } from "./services/site-audit";
 
@@ -112,6 +112,17 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível ler os dados agora. Confira a conexão com o banco." });
       }
     }),
+    report: panelProcedure.input(z.object({ auditId: z.string().uuid() })).query(async ({ input }) => {
+      let report;
+      try {
+        report = await getAuditReport(input.auditId);
+      } catch (error) {
+        console.error("[Admin] Falha ao ler o relatório", error instanceof Error ? error.message : error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível abrir o relatório agora." });
+      }
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Este relatório não foi guardado. Análises feitas antes desta atualização só têm a nota." });
+      return report;
+    }),
     reportStatus: panelProcedure.query(() => ({ configured: dailyReportConfigured() })),
     sendReportNow: panelProcedure.mutation(async () => {
       try {
@@ -137,7 +148,7 @@ export const appRouter = router({
       enforceAuditLimit(ip);
       try {
         const result = await analyzePublicSite(input.domain);
-        void recordAudit({ domain: result.domain, status: "ok", auditId: result.id, score: result.score, ip });
+        void recordAudit({ domain: result.domain, status: "ok", auditId: result.id, score: result.score, result, ip });
         return result;
       } catch (error) {
         void recordAudit({ domain: input.domain, status: "error", errorMessage: error instanceof Error ? error.message : String(error), ip });
