@@ -354,14 +354,6 @@ p {
   align-items: center;
   gap: 18px;
 }
-.header-diagnostic {
-  color: #a4adba;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: color 0.18s ease;
-}
-.header-diagnostic:hover { color: var(--acid); }
 .mobile-nav-cta, .menu-toggle { display: none; }
 
 /* -------------------------------------------------------------------------- */
@@ -3112,7 +3104,6 @@ button.dashboard-foot__cta:focus-visible {
   }
   .header-actions { margin-left: auto; }
   .header-actions .button--header { display: none; }
-  .header-diagnostic { font-size: 13px; }
   .menu-toggle {
     display: grid;
     width: 36px;

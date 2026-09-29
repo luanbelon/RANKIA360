@@ -37,17 +37,14 @@ export function Header() {
             </a>
           ))}
           <a className="mobile-nav-cta" href="/#auditoria" onClick={() => setOpen(false)}>
-            <span>Analisar meu site</span>
+            <span>Descobrir Score</span>
             <ArrowUpRight size={17} />
           </a>
         </nav>
 
         <div className="header-actions">
-          <a className="header-diagnostic" href="/#auditoria">
-            Descobrir Score
-          </a>
           <a className="button button--header" href="/#auditoria">
-            <span>Analisar meu site</span>
+            <span>Descobrir Score</span>
             <ArrowUpRight size={16} />
           </a>
         </div>
